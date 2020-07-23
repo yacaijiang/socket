@@ -1,0 +1,391 @@
+socket函数
+
+等同于有电话可用，申请办理电话
+函数原型
+#include <sys/socket.h>
+int socket(int family, int type, int protocol);
+
+参数
+family：协议族或协议域（domain），取值：
+AF_INET		IPv4协议		2
+AF_INET6		IPv6协议		10
+AF_LOCAL		Unix域协议		1
+AF_ROUTE	路由器套接口	16
+AF_KEY		密钥套接口		15
+
+参数
+type：指明套接口类型，取值：
+SOCK_STREAM	           字节流套接口	1
+SOCK_DGRAM	           数据报套接口	2
+SOCK_SEQPACKET      有序分组套接口	5
+SOCK_RAW		原始套接口		3
+SOCK_PACKET		数据链路套接口  	10 （只有Linux支持）
+
+参数
+protocol：指定协议的类型，取值：
+IPPROTO_TCP	           TCP传输协议	6
+IPPROTO_UDP	           UDP传输协议	7
+IPPROTO_SCTP      	SCTP传输协议	132
+protocol：也可以等于0，让系统根据family和type的取值，选取合适的protocol的值
+
+参数的组合
+
+                 AF_INET         AF_INET6        AF_LOCAL        AF_ROUTE        AF_KEY
+SOCK_STREAM     TCP SCTP         TCP SCTP            yes
+SOCK_DGRAM      UDP              UDP                 yes
+SOCK_SEQPACKET  SCTP             SCTP                yes
+SOCK_RAW        IPv4             IPv6                                yes             yes
+
+返回值
+成功：非负描述字，即非负整数值，称为套接字。同文件描述符类似
+出错：-1
+在Linux中，包括网络套接口在内的许多设备都被看作是文件。大多数情况下，可以通过文件的接口，来操作这些设备
+
+
+IPv4套接口地址结构
+
+头文件<netinet/in.h>
+struct in_addr {
+   in_addr_t 		s_addr;
+};
+struct sockaddr_in {
+   uint8_t          	sin_len;//地址结构长度
+   sa_family_t      	sin_family; //协议族
+   in_port_t        	sin_port; //端口号
+   struct in_addr   	sin_addr; //IP地址
+   char             	sin_zero[8]; //填充字段
+}; 
+
+通用套接口地址结构
+
+首先定义一个套接口地址对象
+将该地址所占据的内存区域清0
+为了保持兼容性，加入了填充字段sin_zero
+sin_zero所占据的内存空间，必须清0
+使用memset清0
+
+内存操作函数（ANSI C）
+
+#include <memory.h>
+
+void *memset(void *dest, int c, size_t len);
+
+void *memcpy(void *dest, const void *src,     			size_t nbyte);
+
+int memcmp(const void *ptr1, const void   			    *ptr2, size_t nbyte)；
+		相同返回0，不同返回非0
+
+对sockaddr_in中的字段赋值
+
+struct sockaddr_in
+{
+	unsigned short sin_family; // 与socket函数第一个参数相同
+	unsigned short sin_port;
+	unsigned int sin_addr.s_addr;
+	unsigned char sin_zero[8]; //通过memset清0
+};
+
+对端口字段的赋值
+
+示例server.cpp
+ServerAddress.sin_port = 4000；
+ServerAddress.sin_port = htons(4000);
+要监听的端口是4000，为什么要使用htons，而不直接赋值？
+
+字节顺序:
+考虑一个16位的整数，它由2个字节构成
+在内存中存储它的方式有两种
+
+小端字节序：低字节存于内存低地址；高字节存于内存高地址;
+高字节存于内存低地址；低字节存于内存高地址;
+
+不同的CPU架构可能采取不同的字节顺序
+Big Endian : PowerPC、IBM、Sun
+Little Endian : x86、DEC
+ARM既可以工作在大端模式，也可以工作在小端模式。
+
+网络顺序
+不同字节顺序的主机之间如何通信？
+规定了网络顺序
+UDP/TCP/IP协议规定:把接收到的第一个字节当作高位字节看待。所以说,网络字节序是大端字节序;比如,我们经过网络发送整型数值0x12345678时,在80X86平台中,它是以小端发存放的,在发送之前需要使用系统提供的字节序转换函数htonl()将其转换成大端法存放的数值;
+
+字节排序函数
+#include <netinet/in.h>
+主机顺序网络顺序
+		uint16_t  htons(uint16_t hostshort)
+		uint32_t  htonl(uint32_t hostlong)
+                             均返回：网络字节序值
+
+网络顺序主机顺序
+		uint16_t  ntohs(uint16_t netshort)
+		uint32_t  ntohl(uint32_t netlong)
+                             均返回：主机字节序值
+
+对sockaddr_in中的字段赋值
+struct sockaddr_in
+{
+	unsigned short sin_family; // 与socket函数第一个参数相同
+	unsigned short sin_port;
+	unsigned int sin_addr.s_addr;
+	unsigned char sin_zero[8]; //通过memset清0
+};
+
+对IP地址进行赋值
+示例3.1中，server.cpp
+ServerAddress.sin_addr.s_addr = 
+					htonl(INADDR_ANY);
+INADDR_ANY
+等于0
+表示服务器可以在任意网络接口上接受客户连接
+一个服务器可能有多个网络接口
+
+示例3.1中，client.cpp
+需要设置服务器的IP地址
+inet_pton(AF_INET, “127.0.0.1”, 
+			    &ServerAddress.sin_addr);
+将以字符串形式表示的IP地址，存储到sockaddr_in结构体中
+该地址是服务器的IP地址
+
+通常使用两组地址转换函数
+在ASCII字符串与网络字节序的二进制值间转换地址
+inet_aton、inet_addr、inet_ntoa：在点分十进制字符串，与32位网络字节序二进制值间转换IPv4地址
+inet_pton、inet_ntop：对IPv4和IPv6地址都能处理
+
+inet_aton函数
+函数原型
+#include <arpa/inet.h>
+int inet_aton(const char* strptr, 
+                     struct in_addr *addrptr);
+将strptr指向的字符串，转换成32位的网络字节序二进制值，并存储在addrptr指向的结构体中
+成功返回1，出错返回0
+
+inet_addr函数
+函数原型
+#include <arpa/inet.h>
+in_addr_t inet_addr(const char* strptr); 
+将strptr指向的字符串，转换成32位的网络字节序二进制值，将其作为返回值返回
+出错：返回INADDR_NONE
+INADDR_NONE等于0xffffffff
+即255.255.255.255广播地址不能由该函数处理
+
+inet_ntoa函数
+函数原型
+#include <arpa/inet.h>
+char* inet_ntoa(struct in_addr inaddr); 
+将32位的网络字节序二进制IPv4地址，转换成点分十进制字符串，并作为返回值返回
+注意：由函数返回值所指的字符串，驻留在静态内存中，该函数不可重入（示例3.8）
+
+inet_pton函数
+函数原型
+#include <arpa/inet.h>
+int inet_pton(int family, const char* strptr, 
+			      void *addrptr);
+参数
+family：AF_INET或AF_INET6
+strptr：IPv4或IPv6地址的字符串表达
+addrptr：转换strptr指向的字符串，将网络字节序的二进制值，存储在addrptr指向的内存
+通常addrptr指向sockaddr_in或sockaddr_in6
+返回值
+1：成功
+0：输入的不是有效表达式
+-1：出错
+
+inet_ntop函数
+函数原型
+#include <arpa/inet.h>
+const char* inet_ntop(int family, const void *addrptr,   				       char* strptr, size_t len);
+将addrptr指向的网络字节序二进制值，转换成字符串，保存在strptr指向的内存中，该内存包含len个字节
+参数与返回值
+family：AF_INET或AF_INET6
+出错：NULL
+成功：strptr
+
+bind函数
+相当于将电话号码和你的电话绑定在一起
+即将套接口地址信息，与套接口绑定
+函数原型
+#include <sys/socket.h>
+int bind(int sockfd, 
+			  const struct sockaddr *myaddr,
+			  socklen_t addrlen);
+函数原型
+int bind(int sockfd, 
+			  const struct sockaddr *myaddr,
+			  socklen_t addrlen);
+参数
+sockfd：socket函数的返回值
+myaddr：套接口地址信息，包括family、端口、IP
+addrlen：套接口地址结构大小
+类型socklen_t：unsigned int
+返回值：成功为0，出错为-1
+TCP服务器或客户端，都可以不调用或调用bind函数
+TCP服务器通常都要调用bind函数，绑定在一个预先设置好的端口上
+若TCP服务器不调用bind函数，当调用listen函数时，内核将自动分配一个端口
+TCP客户端通常都不要调用bind函数，当调用connect函数时，内核自动分配一个端口
+
+套接口地址结构赋值的情况组合：
+
+IP地址                端口                 结果
+通配地址	       0		内核选择IP地址和端口号
+通配地址	      非0	内核选择IP地址，进程指定端口
+本地IP		       0		进程指定IP地址，内核选择端口
+本地IP		      非0	进程指定IP地址和端口号
+
+通配地址：INADDR_ANY （等于0）
+
+listen函数
+相当于打开电话振铃，使你能够听到一个外来的电话
+当socket函数创建一个套接口时，该套接口被假设为一个主动套接口，即调用connect函数发起连接的客户套接口
+listen函数把一个未连接的套接口转换成一个被动套接口，
+指示内核应接收指向该套接口的连接请求
+listen将套接口从主动态变成被动态，TCP状态图中，即进入LISTEN状态
+listen的第二个参数规定了内核应该为相应套接口排队的最大连接个数
+函数原型
+#include<sys/socket.h>
+int listen(int sockfd, int backlog);
+返回值：成功返回0，出错返回-1
+对于给定的监听套接字，内核要维护两个队列
+未完成连接队列：没有完成三次握手，处于SYN_RCVD状态
+已完成连接队列：已经完成三次握手，处于ESTABLISHED状态
+两个队列之和不超过backlog;
+另外几点说明：
+不同的实现对backlog有不同的解释，如源自Berkeley的实现将backlog增加一个模糊因子，把它乘以1.5，再作为两个队列之和；
+不要把backlog定义为0，因为有些实现允许1个连接排队，而有些实现不允许连接排队；
+当一个客户SYN到达时，若两个队列都是满的，tcp就忽略此分节，且不发送RST。这是因为，这种情况是暂时的，客户tcp将重发SYN，期望不久的将来就能在队列中找到空闲条目。如果发送RST，将会出现？
+若服务器回应一个RST，客户的connect调用就会立即返回一个错误
+若该服务器只是因为接受请求的队列满，而发的RST，客户应该再次尝试调用connect函数。这样客户就要做TCP正常的重传操作
+若该服务器本来就没有绑定某个端口，服务器将回应RST
+这样，客户就无法区分这个RST究竟是因为队列满，还是由于没有进程监听端口
+当调用完listen函数，无论服务器是否调用accept函数（从监听队列中取出一个连接）
+客户端都可以向服务器发送数据，数据将保存在已连接套接口的接收缓冲区中
+
+
+SYN洪水攻击
+黑客伪造源IP，向服务器发送大量的SYN报文
+致使服务器无法对正常用户做出响应
+监听队列的超时值：例如75秒
+解决方案
+
+accept函数
+相当于接听电话
+从已完成连接队列队头取出下一个已完成的连接
+若已完成连接队列为空，调用accept的进程要进入睡眠状态
+函数原型
+#include<sys/socket.h>
+int accept(int sockfd, struct sockaddr *cliaddr,  
+                   socklen_t *addrlen);
+参数
+sockfd：即socket函数的返回值，套接字
+cliaddr：当accept函数返回时，内核将从已完成连接队列中，取出一个连接；并将该连接的客户端信息（协议族、IP、Port），保存在cliaddr指向的结构体中
+参数
+addrlen：调用accept前，*addrlen的值为cliaddr实际所指的套接口地址结构的长度；accept返回时，内核填充*addrlen，该值为确切地客户套接口地址结构长度
+可以将cliaddr和addrlen设置为NULL
+返回值
+成功：非负描述字，代表与所返回客户的TCP连接（通常，称sockfd监听套接口，此为已连接套接口）
+出错：-1
+
+getsockname和getpeername
+获取与某个套接口关联的本地协议地址，或与某个套接口关联的远地协议地址
+函数原型
+#include<sys/socket.h>
+int getsockname(int sockfd, struct sockaddr *localaddr, socklen_t *addrlen);
+获取本地的协议地址
+服务器获取服务器的IP和端口
+客户获取客户的IP和端口
+
+getsockname函数
+函数原型
+int getsockname(int sockfd, struct sockaddr *localaddr, socklen_t *addrlen);
+参数
+sockfd：需要查询的套接字
+localaddr：该函数返回时，填充该结构
+addrlen：调用该函数之前，让*addrlen为localaddr指向的套接口地址结构大小；调用之后，为实际套接口地址结构大小
+0：成功，-1：出错
+
+getpeername函数
+函数原型
+int getpeername(int sockfd, struct sockaddr *peeraddr, socklen_t *addrlen);
+返回远端的地址或端口信息（服务器调用，返回客户，客户调用返回服务器）
+参数
+sockfd：需要查询的套接字
+peeraddr：该函数返回时，填充该结构
+addrlen：调用该函数之前，让*addrlen为localaddr指向的套接口地址结构大小；调用之后，为实际套接口地址结构大小
+0：成功，-1：出错
+
+需要这两个函数的理由
+在一个没有调用bind函数的TCP客户上
+以端口号0调用bind
+以通配符IP地址调用bind之后的TCP服务器
+
+connect函数
+相当于电话拨号，即客户向服务器发起TCP连接
+函数原型
+#include <sys/socket.h>
+int connect(int sockfd, const struct sockaddr *servaddr, socklen_t addrlen);
+参数
+sockfd：socket函数的返回值
+参数
+servaddr：服务器的地址信息，包括IP，Port，协议族
+addrlen：服务器套接口地址结构的长度
+返回值：成功返回0，出错返回-1
+connect激发TCP的三路握手过程；仅在连接建立成功或出错时才返回
+其中错误有以下几种情况：
+如果客户没有收到SYN分节的响应（总共75秒，这之间需要可能需要重发若干次SYN），则errno被设置为ETIMEDOUT(等于110)。
+如果对客户的SYN的响应是RST，则表明该服务器主机在该端口上没有进程在等待。errno被设置成ECONNREFUSED（等于111）；
+如果客户发出的SYN在中间路由器上引发一个目的地不可达ICMP错误，则如第一种情况，连续发送SYN，直到规定时间仍未收到响应，则errno被设置成EHOSTUNREACH（113）或ENETUNREACH（101）。
+如果函数connect失败，则套接字不可再用，必须关闭。不能再对此套接字再调用函数connect。
+
+示例3.11
+没有服务器绑定端口client1
+没有服务器ip存在client2
+
+基本套接字函数－read
+#include <unistd.h>
+int read(int fd, char *buf, int len);
+		返回:大于0－读写字节大小；-1－出错；
+调用函数read时，有如下几种情况：
+套接字接收缓冲区接收到数据，返回接收到的字节数；
+tcp协议收到FIN数据，返回0；
+tcp协议收到RST数据，返回－1，同时errno为ECONNRESET；
+进程阻塞过程中接收到信号，返回－1，同时errno为EINTR。
+
+基本套接字函数－write
+#include <unistd.h>
+int write(int fd, char *buf, int len);
+                     返回:大于0－读写字节大小；-1－出错；
+
+调用函数write，有如下几种情况：
+套接字发送缓冲区有足够空间，返回发送的字节数；
+tcp协议接收到RST数据，返回－1，同时errno为ECONNRESET； ；
+进程阻塞过程中接收到信号，返回－1，同时errno为EINTR。
+
+数据传输函数－send
+#include <sys/types.h>
+#include <sys/socket.h>
+ssize_t send (int s, const void *msg, size_t len, int flags);
+		返回：非0－发送成功的数据长度；-1－出错；
+
+flags 是传输控制标志，其值定义如下：
+0：常规操作，如同write()函数
+MSG_OOB，发送带外数据。
+MSG_DONTROUTE：忽略底层协议的路由设置，只能将数据发送给与发送机处在同一个网络中的机器上。
+
+数据传输函数－recv
+#include <sys/types.h>
+#include <sys/socket.h>
+ssize_t recv(int s, void *buf ,size_t len, int flags);
+  返回：大于0表示成功接收的数据长度；0: 对方已关闭，-1:出错。
+
+flags是传输控制标志，其值定义如下：
+0：常规操作，如同read()函数；
+MSG_PEEK：只查看数据而不读出数据，后续读操作仍然能读该数据；
+MSG_OOB：忽略常规数据，而只读带外数据；
+MSG_WAITALL：recv函数只有在将接收缓冲区填满后才返回。
+
+close
+#include <unistd.h>
+int close(int sockfd);
+                  返回:0－OK；-1－出错；
+close函数缺省功能是将套接字做上“已关闭”标记，并立即返回到进程。这个套接字不能再为该进程所用。
+正常情况下，close将引发向TCP的四分节终止序列，但在终止前将发送已排队的数据；
+如果套接字描述符访问计数在调用close后大于0（在多个进程共享同一个套接字的情况下），则不会引发TCP终止序列（即不会发送FIN分节）；
